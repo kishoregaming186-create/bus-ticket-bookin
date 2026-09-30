@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BusGo – Book Bus Tickets</title>
+<style>
+:root{--bg:#fff;--fg:#1c1c1e;--mut:#6b7280;--card:#f6f7f9;--bd:#d9dde3;--pri:#d32f2f;--ok:#198754;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15171a;--fg:#eceef1;--mut:#9aa1ab;--card:#1e2126;--bd:#343a42}}
+:root[data-theme="dark"]{--bg:#15171a;--fg:#eceef1;--mut:#9aa1ab;--card:#1e2126;--bd:#343a42}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{background:var(--pri);color:#fff;padding:12px 16px;display:flex;gap:16px;align-items:center}
+header b{font-size:20px;cursor:pointer}header a{color:#fff;cursor:pointer;opacity:.9}
+main{max-width:860px;margin:0 auto;padding:16px}
+.hero{background:linear-gradient(135deg,#b71c1c,#ff7043);color:#fff;padding:24px;border-radius:14px}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 150px}
+input,select{width:100%;padding:10px;border:1px solid var(--bd);border-radius:8px;font:inherit;background:var(--bg);color:var(--fg)}
+button{padding:10px 16px;border:0;border-radius:8px;background:var(--pri);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+button.alt{background:transparent;color:var(--pri);border:1px solid var(--pri)}button:disabled{opacity:.4;cursor:not-allowed}
+.hero button{background:#ffc107;color:#222}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin:12px 0;display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+.mut{color:var(--mut);font-size:14px}.ok{color:var(--ok)}.bad{color:var(--pri)}
+.bus{border:3px solid var(--bd);border-radius:22px;padding:14px;background:var(--card);width:max-content;max-width:100%}
+.sr{display:flex;gap:8px;margin-bottom:8px}.aisle{width:26px}
+.seat{width:42px;height:42px;padding:0;background:var(--bg);color:var(--ok);border:2px solid var(--ok);border-radius:8px 8px 4px 4px}
+.seat.sel{background:var(--ok);color:#fff}.seat.bk{background:var(--bd);color:var(--mut);border-color:var(--bd)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+.ticket{border:2px dashed var(--pri);border-radius:14px;padding:18px;background:var(--card)}
+table{width:100%}td{padding:4px 0}td:first-child{color:var(--mut);width:35%}
+.msg{background:var(--card);border-left:4px solid var(--ok);padding:10px 14px;border-radius:6px;margin-bottom:10px}
+@media print{header,.np{display:none}}
+</style></head><body>
+<header><b onclick="go('home')">🚌 BusGo</b><a onclick="go('home')">Book</a><a onclick="go('my')">My bookings</a></header>
+<main id="app"></main>
+<script>
+const CITIES=["Chennai","Bengaluru","Coimbatore","Madurai","Hyderabad"];
+const ROUTES=[["Chennai","Bengaluru",650,6],["Bengaluru","Chennai",650,6],["Chennai","Coimbatore",900,8],["Coimbatore","Chennai",900,8],["Chennai","Madurai",850,9],["Madurai","Chennai",850,9],["Bengaluru","Hyderabad",1100,10],["Hyderabad","Bengaluru",1100,10]];
+const BUSES=[["Kaveri Express","AC Seater"],["Southern Star","AC Semi-Sleeper"],["Night Rider","Non-AC Seater"]];
+const SLOTS=[[21,0],[22,30]], SEATS=40, MAXSEL=6;
+let bookings=[]; try{bookings=JSON.parse(localStorage.getItem("busgo")||"[]")}catch(e){}
+const save=()=>{try{localStorage.setItem("busgo",JSON.stringify(bookings))}catch(e){}};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const iso=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const fmtT=d=>d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+const fmtD=d=>d.toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short",year:"numeric"});
+const inr=n=>"₹"+n.toLocaleString("en-IN");
+
+function trips(){ // generated for the next 8 days
+  const out=[],base=new Date();base.setHours(0,0,0,0);
+  for(let d=0;d<8;d++)ROUTES.forEach((r,ri)=>SLOTS.forEach((s,si)=>{
+    const dep=new Date(base);dep.setDate(dep.getDate()+d);dep.setHours(s[0],s[1]);
+    out.push({id:`${iso(dep)}|${ri}|${si}`,from:r[0],to:r[1],dep,arr:new Date(dep.getTime()+r[3]*36e5),
+      fare:si?r[2]-100:r[2],bus:BUSES[(ri+si)%3]});
+  }));return out;
+}
+function taken(id){ // pseudo-random pre-booked seats + real bookings
+  let h=0;for(const c of id)h=(h*31+c.charCodeAt(0))>>>0;
+  const s=new Set();for(let i=0;i<9;i++){h=(h*1103515245+12345)>>>0;s.add(h%SEATS+1);}
+  bookings.filter(b=>b.tripId===id&&b.status==="Confirmed").forEach(b=>b.seats.forEach(n=>s.add(n)));
+  return s;
+}
+const $=id=>document.getElementById(id), app=$("app");
+let sel=new Set(), notice="";
+function go(v,a){sel=new Set();({home,results,seats,ticket,my})[v](a);window.scrollTo(0,0)}
+const note=()=>{const n=notice;notice="";return n?`<div class="msg">${esc(n)}</div>`:""};
+
+function home(){
+  const t=iso(new Date());
+  app.innerHTML=note()+`<div class="hero"><h2 style="margin-top:0">Book bus tickets online</h2>
+  <div class="row"><select id="f">${CITIES.map(c=>`<option ${c=="Chennai"?"selected":""}>${c}</option>`).join("")}</select>
+  <select id="t">${CITIES.map(c=>`<option ${c=="Bengaluru"?"selected":""}>${c}</option>`).join("")}</select>
+  <input type="date" id="d" min="${t}" value="${t}"><button onclick="search()">Search buses</button></div></div>
+  <p class="mut">Demo data – bookings are saved in this browser only.</p>`;
+}
+function search(){
+  const q={from:$("f").value,to:$("t").value,date:$("d").value};
+  if(q.from===q.to){alert("Choose different cities.");return}
+  results(q);
+}
+function results(q){
+  const now=new Date();
+  const list=trips().filter(x=>x.from===q.from&&x.to===q.to&&iso(x.dep)===q.date&&x.dep>now);
+  app.innerHTML=`<h3>${q.from} → ${q.to} <span class="mut">${q.date}</span></h3><a class="bad" style="cursor:pointer" onclick="go('home')">← Modify search</a>`+
+  (list.length?list.map(x=>{const left=SEATS-taken(x.id).size;return `<div class="card"><div><b>${x.bus[0]}</b><div class="mut">${x.bus[1]}</div></div>
+   <div><b>${fmtT(x.dep)}</b> → <b>${fmtT(x.arr)}</b><div class="mut">${((x.arr-x.dep)/36e5)} hrs</div></div>
+   <div><b>${inr(x.fare)}</b><div class="${left<6?"bad":"ok"}">${left} seats left</div></div>
+   ${left?`<button onclick="go('seats','${x.id}')">Select seats</button>`:"<span class=mut>Sold out</span>"}</div>`}).join(""):
+   `<div class="card">No buses found for this route/date. Try another day.</div>`);
+}
+function seats(id){
+  const x=trips().find(t=>t.id===id), tk=taken(id);
+  let rows="";for(let r=0;r<SEATS/4;r++){rows+='<div class="sr">';for(let c=0;c<4;c++){const n=r*4+c+1;if(c==2)rows+='<span class="aisle"></span>';
+    rows+=`<button class="seat ${tk.has(n)?"bk":""}" ${tk.has(n)?"disabled":""} data-n="${n}" onclick="pick(${n},this)">${n}</button>`}rows+="</div>"}
+  app.innerHTML=`<h3>${x.from} → ${x.to}</h3><p class="mut">${x.bus[0]} · ${x.bus[1]} · ${fmtD(x.dep)} ${fmtT(x.dep)} · ${inr(x.fare)}/seat</p>
+  <div class="grid"><div><div class="bus"><div style="text-align:right" class="mut">Driver 🧑‍✈️</div>${rows}</div>
+  <p class="mut">Green = available · Filled = selected · Grey = booked</p></div>
+  <div class="card" style="display:block;align-self:start"><h4 style="margin-top:0">Passenger details</h4>
+  <p><input id="nm" placeholder="Full name" maxlength="60"></p><p><input id="ph" placeholder="Phone (10 digits)" inputmode="tel" maxlength="15"></p>
+  <p>Seats: <b id="sl">–</b><br>Total: <b id="tot">₹0</b></p><button id="ok" disabled onclick="book('${id}')">Confirm booking</button>
+  <p class="mut">No payment in this demo. Max ${MAXSEL} seats.</p></div></div>`;
+  window._fare=x.fare;
+}
+function pick(n,b){
+  if(sel.has(n)){sel.delete(n);b.classList.remove("sel")}
+  else if(sel.size<MAXSEL){sel.add(n);b.classList.add("sel")}else alert("Up to "+MAXSEL+" seats per booking.");
+  const a=[...sel].sort((p,q)=>p-q);$("sl").textContent=a.join(", ")||"–";$("tot").textContent=inr(a.length*window._fare);$("ok").disabled=!a.length;
+}
+function book(id){
+  const nm=$("nm").value.trim(),ph=$("ph").value.trim(),x=trips().find(t=>t.id===id);
+  if(!nm||!/^[0-9+ ]{10,15}$/.test(ph)){alert("Enter a name and a valid phone number.");return}
+  const tk=taken(id);if([...sel].some(n=>tk.has(n))){alert("A seat was just taken. Choose again.");return seats(id)}
+  const b={pnr:Math.random().toString(36).slice(2,10).toUpperCase(),tripId:id,seats:[...sel].sort((a,b)=>a-b),name:nm,phone:ph,amount:sel.size*x.fare,status:"Confirmed",at:Date.now()};
+  bookings.push(b);save();notice="Booking confirmed! Have a safe journey.";go("ticket",b.pnr);
+}
+function ticket(pnr){
+  const b=bookings.find(z=>z.pnr===pnr),x=trips().find(t=>t.id===b.tripId),c=b.status==="Cancelled";
+  app.innerHTML=note()+`<div class="ticket"><div class="row" style="justify-content:space-between"><b>🚌 BusGo e-ticket</b><b>PNR: ${b.pnr}</b></div>
+  ${c?'<p class="bad"><b>Cancelled</b></p>':""}<h3>${x.from} → ${x.to}</h3><table>
+  <tr><td>Bus</td><td>${x.bus[0]} (${x.bus[1]})</td></tr><tr><td>Departure</td><td>${fmtD(x.dep)} ${fmtT(x.dep)}</td></tr>
+  <tr><td>Arrival</td><td>${fmtD(x.arr)} ${fmtT(x.arr)}</td></tr><tr><td>Passenger</td><td>${esc(b.name)} (${esc(b.phone)})</td></tr>
+  <tr><td>Seats</td><td>${c?"–":b.seats.join(", ")}</td></tr><tr><td>Amount</td><td>${inr(b.amount)}</td></tr></table></div>
+  <p class="np row"><button class="alt" onclick="print()">Print</button><button class="alt" onclick="go('my')">All bookings</button>
+  ${!c&&x.dep>Date.now()+72e5?`<button onclick="cancel('${b.pnr}')">Cancel booking</button>`:""}</p>`;
+}
+function cancel(pnr){
+  if(!confirm("Cancel this booking? Seats will be released."))return;
+  bookings.find(b=>b.pnr===pnr).status="Cancelled";save();notice="Booking cancelled.";go("my");
+}
+function my(){
+  const all=trips();
+  app.innerHTML=note()+"<h3>My bookings</h3>"+(bookings.length?[...bookings].reverse().map(b=>{const x=all.find(t=>t.id===b.tripId);
+   return `<div class="card"><div><b>${x.from} → ${x.to}</b><div class="mut">${fmtD(x.dep)} ${fmtT(x.dep)} · PNR ${b.pnr}</div></div>
+   <div>${b.status==="Confirmed"?"Seats "+b.seats.join(", "):""}<div class="${b.status==="Confirmed"?"ok":"bad"}">${b.status} · ${inr(b.amount)}</div></div>
+   <button class="alt" onclick="go('ticket','${b.pnr}')">View</button></div>`}).join(""):'<div class="card">No bookings yet.</div>');
+}
+home();
+</script></body></html>
